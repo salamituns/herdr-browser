@@ -14,6 +14,7 @@ const out = process.stdout;
 const IMAGE_IDS = [4242, 4243];
 let front = 0;
 const TOP_ROWS = 1;
+const DEBUG = process.env.HERDR_BROWSER_DEBUG === '1';
 
 // Ask the terminal for its cell size in pixels: CSI 16 t -> CSI 6 ; h ; w t.
 // Herdr answers, but the round trip through the outer terminal can take >300ms.
@@ -90,9 +91,12 @@ let tabCount = 0;
 let lastStatus = '';
 function drawStatus() {
   const left = editing !== null
-    ? ` url> ${editing}█`
+    ? ` url> ${editing}█  (Enter go, Esc cancel)`
     : ` ${currentUrl || 'about:blank'}`;
-  const right = `${stats.fps}fps ${stats.kbps}KB/s drop:${stats.dropped} ${fast ? 'fast' : 'sharp'} ${scale}x cell:${cell.w}x${cell.h}${cellSource === 'terminal' ? '' : '?'} tabs:${tabCount} cdp:${port} │ ^L url ^R reload ^S scale ^Q quit `;
+  // The URL gets the room; diagnostics only with HERDR_BROWSER_DEBUG=1.
+  const right = DEBUG
+    ? `${stats.fps}fps ${stats.kbps}KB/s drop:${stats.dropped} ${fast ? 'fast' : 'sharp'} ${scale}x cell:${cell.w}x${cell.h}${cellSource === 'terminal' ? '' : '?'} tabs:${tabCount} cdp:${port} │ ^L url ^R reload ^S scale ^Q quit `
+    : `${tabCount > 1 ? `${tabCount} tabs │ ` : ''}${fast ? 'fast │ ' : ''}^L url  ^R reload  ^S ${fast ? 'sharp' : 'fast'}  ^Q quit `;
   const width = out.columns;
   const room = Math.max(0, width - right.length);
   const line = (left.length > room ? left.slice(0, Math.max(0, room - 1)) + '…' : left.padEnd(room)) + right;
