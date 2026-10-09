@@ -58,9 +58,30 @@ Register the MCP launcher once. It picks the right Chrome from the agent pane's
 `HERDR_WORKSPACE_ID`:
 
 ```sh
+# Claude Code
 claude mcp add --scope user herdr-browser -- \
   node ~/.local/state/herdr/plugins/devtuns.browser/current/src/mcp.js
+
+# Antigravity CLI
+agy mcp add herdr-browser "$(command -v node)" \
+  ~/.local/state/herdr/plugins/devtuns.browser/current/src/mcp.js
 ```
+
+Cursor: add this under `mcpServers` in `~/.cursor/mcp.json` (with your full
+home path; Cursor doesn't expand `~`), then approve it once for the CLI with
+`cursor-agent mcp enable herdr-browser`:
+
+```json
+"herdr-browser": {
+  "command": "node",
+  "args": ["/Users/you/.local/state/herdr/plugins/devtuns.browser/current/src/mcp.js"]
+}
+```
+
+If the agent also has a standalone `chrome-devtools` MCP, it gets two sets of
+identical browser tools and may pick the one that drives a separate, invisible
+Chrome. Disable that one in Herdr workspaces, or tell the agent to use
+`herdr-browser`.
 
 `current` is a link that the plugin keeps pointed at its active installation
 (Herdr installs each update into a new directory), so this survives
