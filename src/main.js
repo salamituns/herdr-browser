@@ -5,7 +5,7 @@ import { connectCDP } from './cdp.js';
 import { ensureChrome } from './chrome.js';
 import { kittyPng, kittyDelete, kittyDeleteAll } from './kitty.js';
 import { dispatchKeys, dispatchMouse, parseMouse, stripMouse } from './input.js';
-import { profileDir } from './paths.js';
+import { profileDir, refreshCurrentLink } from './paths.js';
 
 const out = process.stdout;
 // Double buffering: alternate two image ids and place the new frame over the
@@ -148,6 +148,7 @@ function showFrame(pngBase64) {
 
 // --- main -------------------------------------------------------------------
 async function main() {
+  refreshCurrentLink();
   out.write('\x1b[?1049h\x1b[?25l\x1b[2J');
   process.stdin.setRawMode(true);
   process.stdin.resume();

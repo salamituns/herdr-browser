@@ -20,7 +20,7 @@ agent pane (workspace w8)                     browser pane (w8)
   every page they open and can take over at any time. When an agent opens a tab,
   the pane switches to it.
 
-> Status: working prototype (v0.0.1). macOS and Linux.
+> Status: v0.1.0, early but usable. macOS and Linux.
 
 ## Requirements
 
@@ -38,9 +38,11 @@ agent pane (workspace w8)                     browser pane (w8)
 ## Install
 
 ```sh
-git clone <this repo> ~/devtuns/herdr-browser
-herdr plugin link ~/devtuns/herdr-browser
+herdr plugin install salamituns/herdr-browser
 ```
+
+There's no build step. To hack on it, clone the repo and run
+`herdr plugin link <path>` instead.
 
 Check that your terminal can show images:
 
@@ -56,13 +58,20 @@ Register the MCP launcher once. It picks the right Chrome from the agent pane's
 `HERDR_WORKSPACE_ID`:
 
 ```sh
-claude mcp add --scope user herdr-browser -- node ~/devtuns/herdr-browser/src/mcp.js
+claude mcp add --scope user herdr-browser -- \
+  node ~/.local/state/herdr/plugins/devtuns.browser/current/src/mcp.js
 ```
 
+`current` is a link that the plugin keeps pointed at its active installation
+(Herdr installs each update into a new directory), so this survives
+`herdr plugin update`. The link is created when the Herdr server starts or the
+first time you open a browser pane. If `$XDG_STATE_HOME` is set, the path starts
+there instead of `~/.local/state`.
+
 Restart running agent sessions to pick it up. Any MCP-capable agent works the
-same way: point its stdio MCP config at `node src/mcp.js`. Extra arguments are
-passed through to `chrome-devtools-mcp`. Usage statistics and CrUX lookups are
-turned off, so your local URLs aren't sent anywhere.
+same way: point its stdio MCP config at that `mcp.js`. Extra arguments are passed
+through to `chrome-devtools-mcp`. Usage statistics and CrUX lookups are turned
+off, so your local URLs aren't sent anywhere.
 
 ## Use
 
@@ -101,7 +110,8 @@ workspace's Chrome). Chrome also stops automatically on `workspace.closed`.
 | `src/chrome.js` | Start or reuse the workspace's detached headless Chrome |
 | `src/mcp.js` | Agent entrypoint: start/reuse that Chrome, then run `chrome-devtools-mcp --browserUrl` |
 | `src/stop.js` | Stop a workspace's Chrome (event hook and action) |
-| `src/paths.js` | Shared state paths (`~/.local/state/herdr/plugins/devtuns.browser`) |
+| `src/paths.js` | Shared state paths (`~/.local/state/herdr/plugins/devtuns.browser`) and the `current` install link |
+| `src/startup.js` | Startup hook: refresh the `current` link |
 | `src/cdp.js` | Minimal CDP client over Node's built-in WebSocket |
 | `src/probe.js` | Kitty graphics capability check |
 
@@ -129,3 +139,7 @@ Design notes:
 - An agent pane moved to another workspace keeps using its original workspace's
   browser, because the MCP server reads `HERDR_WORKSPACE_ID` at startup.
 - If an agent resizes the page (`resize_page`), the pane resets it to fit itself.
+
+## License
+
+MIT. See [LICENSE](LICENSE).

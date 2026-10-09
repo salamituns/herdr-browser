@@ -1,9 +1,10 @@
 {
   "name": "herdr-browser",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "private": true,
+  "license": "MIT",
   "type": "module",
-  "description": "Spike: a browser pane for Herdr (headless Chrome -> Kitty graphics)",
+  "description": "A browser pane for Herdr (headless Chrome -> Kitty graphics)",
   "scripts": {
     "probe": "node src/probe.js",
     "start": "node src/main.js"
