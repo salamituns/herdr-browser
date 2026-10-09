@@ -54,34 +54,39 @@ If you see a red/green gradient, it works.
 
 ### Connect your agents
 
-Register the MCP launcher once. It picks the right Chrome from the agent pane's
-`HERDR_WORKSPACE_ID`:
+The launcher is a drop-in replacement for `chrome-devtools-mcp`. Inside a
+Herdr pane (`HERDR_WORKSPACE_ID` is set) it attaches to that workspace's
+visible Chrome; anywhere else (an IDE, a plain terminal, CI) it runs plain
+`chrome-devtools-mcp` with your arguments, unchanged. So replace your existing
+`chrome-devtools` entry with it rather than adding a second browser MCP: one
+tool set, and the agent can't pick the invisible browser by mistake.
 
 ```sh
 # Claude Code
-claude mcp add --scope user herdr-browser -- \
+claude mcp add --scope user chrome-devtools -- \
   node ~/.local/state/herdr/plugins/devtuns.browser/current/src/mcp.js
 
-# Antigravity CLI
-agy mcp add herdr-browser "$(command -v node)" \
+# Antigravity CLI (re-adding an existing name updates it)
+agy mcp add chrome-devtools-mcp "$(command -v node)" \
   ~/.local/state/herdr/plugins/devtuns.browser/current/src/mcp.js
 ```
 
-Cursor: add this under `mcpServers` in `~/.cursor/mcp.json` (use the full
-path), then approve it once for the CLI with
-`cursor-agent mcp enable herdr-browser`:
+Cursor: set your `chrome-devtools` entry in `~/.cursor/mcp.json` to this (use
+the full path), then approve it once for the CLI with
+`cursor-agent mcp enable chrome-devtools`:
 
 ```json
-"herdr-browser": {
+"chrome-devtools": {
   "command": "node",
   "args": ["/Users/you/.local/state/herdr/plugins/devtuns.browser/current/src/mcp.js"]
 }
 ```
 
-If the agent also has a standalone `chrome-devtools` MCP, it gets two sets of
-identical browser tools and may pick the one that drives a separate, invisible
-Chrome. Disable that one in Herdr workspaces, or tell the agent to use
-`herdr-browser`.
+Keep any arguments you had (`--headless`, `--isolated`, `--channel`, ...).
+They apply outside Herdr; inside Herdr, flags that choose or launch a browser
+are dropped because the workspace's browser is used. To force the standalone
+behavior inside Herdr, set `HERDR_BROWSER_MCP=standalone`. If you uninstall the
+plugin, point the entry back at `npx -y chrome-devtools-mcp@latest`.
 
 `current` is a link that the plugin keeps pointed at its active installation
 (Herdr installs each update into a new directory), so this survives
@@ -90,9 +95,9 @@ first time you open a browser pane. If `$XDG_STATE_HOME` is set, the path starts
 there instead of `~/.local/state`.
 
 Restart running agent sessions to pick it up. Any MCP-capable agent works the
-same way: point its stdio MCP config at that `mcp.js`. Extra arguments are passed
-through to `chrome-devtools-mcp`. Usage statistics and CrUX lookups are turned
-off, so your local URLs aren't sent anywhere.
+same way: point its stdio MCP config at that `mcp.js`. Inside Herdr, usage
+statistics and CrUX lookups are turned off, so your local URLs aren't sent
+anywhere.
 
 ## Use
 
