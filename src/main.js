@@ -95,7 +95,7 @@ function drawStatus() {
     : ` ${currentUrl || 'about:blank'}`;
   // The URL gets the room; diagnostics only with HERDR_BROWSER_DEBUG=1.
   const right = DEBUG
-    ? `${stats.fps}fps ${stats.kbps}KB/s drop:${stats.dropped} ${fast ? 'fast' : 'sharp'} ${scale}x cell:${cell.w}x${cell.h}${cellSource === 'terminal' ? '' : '?'} tabs:${tabCount} cdp:${port} │ ^L url ^R reload ^S scale ^Q quit `
+    ? `${stats.fps}fps ${stats.kbps}KB/s drop:${stats.dropped} ${fast ? 'fast' : 'sharp'} ${scale}x frame:${stats.frameSize ?? '?'} want:${layout.viewport.width * scale}x${layout.viewport.height * scale} cell:${cell.w}x${cell.h}${cellSource === 'terminal' ? '' : '?'} tabs:${tabCount} cdp:${port} │ ^L url ^R reload ^S scale ^Q quit `
     : `${tabCount > 1 ? `${tabCount} tabs │ ` : ''}${fast ? 'fast │ ' : ''}^L url  ^R reload  ^S ${fast ? 'sharp' : 'fast'}  ^Q quit `;
   const width = out.columns;
   const room = Math.max(0, width - right.length);
@@ -127,6 +127,10 @@ function showFrame(pngBase64) {
   }
   writing = true;
   lastShown = pngBase64;
+  if (DEBUG) {
+    const ihdr = Buffer.from(pngBase64.slice(0, 32), 'base64');
+    stats.frameSize = `${ihdr.readUInt32BE(16)}x${ihdr.readUInt32BE(20)}`;
+  }
   const next = 1 - front;
   const payload = `\x1b[${TOP_ROWS + 1};1H`
     + kittyPng(pngBase64, { id: IMAGE_IDS[next], cols: layout.cols, rows: layout.rows })

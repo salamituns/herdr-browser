@@ -40,6 +40,11 @@ export async function ensureChrome(profileDir) {
     '--no-first-run',
     '--no-default-browser-check',
     '--hide-scrollbars',
+    // Headless capture ignores Emulation's deviceScaleFactor: without this,
+    // frames are 1x even when the page reports devicePixelRatio=2, and the
+    // terminal upscales them (blurry). The pane picks the final resolution via
+    // the screencast's maxWidth/maxHeight, so 2x is the ceiling, not a fixed size.
+    `--force-device-scale-factor=${process.env.HERDR_BROWSER_DEVICE_SCALE ?? 2}`,
     'about:blank',
   ], { stdio: 'ignore', detached: true });
   child.unref();

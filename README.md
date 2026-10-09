@@ -111,6 +111,10 @@ Design notes:
   the cell size from `CSI 16 t` and in-band resize reports (DECSET 2048). Chrome's
   device scale factor keeps CSS cells about 8px wide. Ghostty reports physical
   pixels and Warp logical ones; both are handled.
+  Chrome is launched with `--force-device-scale-factor=2`, because headless
+  capture ignores the emulated scale factor and would otherwise send 1× frames
+  that the terminal enlarges (blurry). `HERDR_BROWSER_DEBUG=1` shows `frame:`
+  (actual) next to `want:` (pane pixels), so a mismatch is easy to spot.
 - **Latest frame wins.** If the terminal falls behind, intermediate frames are
   dropped rather than queued, so what you see never lags behind the page.
 - **Double buffering.** Frames alternate between two Kitty image ids and the new
