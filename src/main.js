@@ -3,7 +3,10 @@
 // The pane follows tabs: when an agent opens a tab, the pane switches to it.
 import { connectCDP } from './cdp.js';
 import { ensureChrome } from './chrome.js';
-import { kittyPng, kittyDelete, kittyDeleteAll } from './kitty.js';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { kittyPng, kittyPngFile, kittyDelete, kittyDeleteAll } from './kitty.js';
 import { dispatchKeys, dispatchMouse, parseMouse, stripMouse } from './input.js';
 import { profileDir, refreshCurrentLink } from './paths.js';
 
@@ -15,6 +18,39 @@ const IMAGE_IDS = [4242, 4243];
 let front = 0;
 const TOP_ROWS = 1;
 const DEBUG = process.env.HERDR_BROWSER_DEBUG === '1';
+
+// Frame transport: send each frame as a temp-file path (t=t) when the terminal
+// accepts it, else inline base64. Probed with a 1x1 PNG and the protocol's own
+// OK/error reply. HERDR_BROWSER_TRANSPORT=inline|file forces one.
+const PIXEL_PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+let frameDir = null;
+let frameSeq = 0;
+function probeFileTransport() {
+  const forced = process.env.HERDR_BROWSER_TRANSPORT;
+  if (forced === 'inline') return Promise.resolve(false);
+  frameDir = mkdtempSync(join(tmpdir(), 'herdr-browser-'));
+  const path = join(frameDir, 'tty-graphics-protocol-probe.png');
+  writeFileSync(path, Buffer.from(PIXEL_PNG, 'base64'));
+  if (forced === 'file') return Promise.resolve(true);
+  return new Promise((resolve) => {
+    let seen = '';
+    const done = (ok) => {
+      clearTimeout(timer);
+      process.stdin.off('data', onData);
+      out.write(kittyDelete(4240));
+      resolve(ok);
+    };
+    const timer = setTimeout(() => done(false), 1000);
+    function onData(buf) {
+      seen += buf.toString();
+      const m = seen.match(/\x1b_Gi=4240;([^\x1b]*)/);
+      if (m) done(m[1] === 'OK');
+    }
+    process.stdin.on('data', onData);
+    out.write(`\x1b_Ga=t,t=t,f=100,i=4240,q=0;${Buffer.from(path).toString('base64')}\x1b\\`);
+  });
+}
+let fileTransport = false;
 
 // Ask the terminal for its cell size in pixels: CSI 16 t -> CSI 6 ; h ; w t.
 // Herdr answers, but the round trip through the outer terminal can take >300ms.
@@ -39,24 +75,32 @@ function queryCellSize() {
 // for the pane, or it gets resampled (blurry). Terminals disagree on units:
 // Ghostty reports physical pixels (16x34 on Retina), Warp logical ones (8x16).
 // So size the image from the reported cells, and pick the device scale factor
-// that keeps CSS cells ~8px wide (normal page zoom). ^S trades sharpness for
-// speed by rendering at half that.
+// that keeps CSS cells ~8px wide (normal page zoom).
+//
+// Frame rate: Chrome's PNG encoding is the bottleneck at full Retina size
+// (~15-19 fps), not the terminal. So by default ("auto") stream at half
+// resolution while the page moves (~30 fps) and send one full-resolution frame
+// once it has been still for IDLE_MS. ^S cycles auto / sharp / fast.
 const CSS_CELL_WIDTH = 8;
 let cell = { w: 8, h: 17 };
 let cellSource = 'fallback';
-let fast = process.env.HERDR_BROWSER_FAST === '1';
+const MODES = ['auto', 'sharp', 'fast'];
+let mode = MODES.includes(process.env.HERDR_BROWSER_MODE) ? process.env.HERDR_BROWSER_MODE
+  : process.env.HERDR_BROWSER_FAST === '1' ? 'fast' : 'auto';
+const IDLE_MS = 150;
+let density = 1;
 let scale = 1; // Chrome deviceScaleFactor, derived in computeLayout
 let layout;
 function computeLayout() {
   const cols = out.columns;
   const rows = Math.max(1, out.rows - TOP_ROWS);
-  const density = Math.max(1, Math.round(cell.w / CSS_CELL_WIDTH));
-  scale = fast ? Math.max(1, density / 2) : density;
+  density = Math.max(1, Math.round(cell.w / CSS_CELL_WIDTH));
+  scale = density;
   layout = {
     topRows: TOP_ROWS,
     cols,
     rows,
-    // CSS pixels; the screencast image is viewport * scale device pixels.
+    // CSS pixels; a full-resolution frame is viewport * scale device pixels.
     viewport: {
       width: Math.round((cols * cell.w) / density),
       height: Math.round((rows * cell.h) / density),
@@ -71,7 +115,7 @@ const SIZE_REPORT = /\x1b\[48;(\d+);(\d+);(\d+);(\d+)t/g;
 function takeSizeReports(chunk) {
   let latest = null;
   for (const m of chunk.matchAll(SIZE_REPORT)) latest = m;
-  if (latest) {
+  if (latest && cellSource !== 'pinned') {
     const [rows, cols, hpx, wpx] = latest.slice(1).map(Number);
     if (rows && cols && hpx && wpx) {
       cell = { w: Math.round(wpx / cols), h: Math.round(hpx / rows) };
@@ -89,14 +133,15 @@ let port = 0;
 let tabCount = 0;
 
 let lastStatus = '';
+const nextMode = () => MODES[(MODES.indexOf(mode) + 1) % MODES.length];
 function drawStatus() {
   const left = editing !== null
     ? ` url> ${editing}█  (Enter go, Esc cancel)`
     : ` ${currentUrl || 'about:blank'}`;
   // The URL gets the room; diagnostics only with HERDR_BROWSER_DEBUG=1.
   const right = DEBUG
-    ? `${stats.fps}fps ${stats.kbps}KB/s drop:${stats.dropped} ${fast ? 'fast' : 'sharp'} ${scale}x frame:${stats.frameSize ?? '?'} want:${layout.viewport.width * scale}x${layout.viewport.height * scale} cell:${cell.w}x${cell.h}${cellSource === 'terminal' ? '' : '?'} tabs:${tabCount} cdp:${port} │ ^L url ^R reload ^S scale ^Q quit `
-    : `${tabCount > 1 ? `${tabCount} tabs │ ` : ''}${fast ? 'fast │ ' : ''}^L url  ^R reload  ^S ${fast ? 'sharp' : 'fast'}  ^Q quit `;
+    ? `${stats.fps}fps ${stats.kbps}KB/s drop:${stats.dropped} ${fileTransport ? 'file' : 'inline'} ${mode} ${scale}x frame:${stats.frameSize ?? '?'} want:${layout.viewport.width * scale}x${layout.viewport.height * scale} cell:${cell.w}x${cell.h}${cellSource === 'terminal' ? '' : '?'} tabs:${tabCount} cdp:${port} │ ^L url ^R reload ^S ${nextMode()} ^Q quit `
+    : `${tabCount > 1 ? `${tabCount} tabs │ ` : ''}${mode === 'auto' ? '' : `${mode} │ `}^L url  ^R reload  ^S ${nextMode()}  ^Q quit `;
   const width = out.columns;
   const room = Math.max(0, width - right.length);
   const line = (left.length > room ? left.slice(0, Math.max(0, room - 1)) + '…' : left.padEnd(room)) + right;
@@ -117,6 +162,12 @@ setInterval(() => {
 // --- frames (latest wins, so a slow terminal never builds up lag) -----------
 let writing = false;
 let queued = null;
+function placeFrame(pngBase64, opts) {
+  if (!fileTransport) return kittyPng(pngBase64, opts);
+  const path = join(frameDir, `tty-graphics-protocol-${frameSeq++}.png`);
+  writeFileSync(path, Buffer.from(pngBase64, 'base64'));
+  return kittyPngFile(path, opts);
+}
 let lastShown = null;
 function showFrame(pngBase64) {
   if (pngBase64 === lastShown) return; // static page: nothing to redraw
@@ -133,7 +184,7 @@ function showFrame(pngBase64) {
   }
   const next = 1 - front;
   const payload = `\x1b[${TOP_ROWS + 1};1H`
-    + kittyPng(pngBase64, { id: IMAGE_IDS[next], cols: layout.cols, rows: layout.rows })
+    + placeFrame(pngBase64, { id: IMAGE_IDS[next], cols: layout.cols, rows: layout.rows })
     + kittyDelete(IMAGE_IDS[front]);
   front = next;
   stats.frames++;
@@ -153,8 +204,12 @@ async function main() {
   process.stdin.setRawMode(true);
   process.stdin.resume();
 
+  fileTransport = await probeFileTransport();
   const reported = await queryCellSize();
   if (reported) { cell = reported; cellSource = 'terminal'; }
+  // Benchmarking only: pin the cell size (e.g. 16x34) and ignore size reports.
+  const pinned = DEBUG && process.env.HERDR_BROWSER_CELL?.match(/^(\d+)x(\d+)$/);
+  if (pinned) { cell = { w: Number(pinned[1]), h: Number(pinned[2]) }; cellSource = 'pinned'; }
   computeLayout();
   drawStatus();
 
@@ -189,10 +244,11 @@ async function main() {
     // cross-site navigation is swapping renderers; once running it survives them.
     for (let attempt = 0; ; attempt++) {
       try {
+        const streamScale = mode === 'sharp' ? scale : Math.max(1, scale / 2);
         await cdp.send('Page.startScreencast', {
           format: 'png',
-          maxWidth: layout.viewport.width * scale,
-          maxHeight: layout.viewport.height * scale,
+          maxWidth: layout.viewport.width * streamScale,
+          maxHeight: layout.viewport.height * streamScale,
           everyNthFrame: 1,
         });
         return;
@@ -201,6 +257,23 @@ async function main() {
         await new Promise((r) => setTimeout(r, 150));
       }
     }
+  }
+
+  // After motion stops, replace the half-res stream frame with a full one.
+  let lastStreamFrame = null;
+  let streamSeq = 0;
+  let refineTimer = null;
+  function scheduleRefine(session, gen) {
+    clearTimeout(refineTimer);
+    if (mode !== 'auto' || scale < 2) return;
+    refineTimer = setTimeout(async () => {
+      const seq = streamSeq;
+      try {
+        const { data } = await session.send('Page.captureScreenshot', { format: 'png' });
+        // Drop it if the page moved on while we were capturing.
+        if (gen === generation && seq === streamSeq) showFrame(data);
+      } catch {}
+    }, IDLE_MS);
   }
 
   async function attach(targetId) {
@@ -215,7 +288,14 @@ async function main() {
 
     session.on('Page.screencastFrame', ({ data, sessionId }) => {
       session.send('Page.screencastFrameAck', { sessionId }).catch(() => {});
-      if (gen === generation) showFrame(data);
+      if (gen !== generation) return;
+      // A repaint with no visible change (e.g. caused by our own full-res
+      // capture) must not replace the sharp frame or re-arm the timer.
+      if (data === lastStreamFrame) return;
+      lastStreamFrame = data;
+      streamSeq++;
+      showFrame(data);
+      scheduleRefine(session, gen);
     });
     session.on('Page.frameNavigated', ({ frame }) => {
       if (gen === generation && !frame.parentId) { currentUrl = frame.url; drawStatus(); }
@@ -312,7 +392,13 @@ async function main() {
     }
     if (keys === '\x0c') { editing = ''; drawStatus(); return; } // ^L
     if (keys === '\x12') { await cdp.send('Page.reload').catch(() => {}); return; } // ^R
-    if (keys === '\x13') { fast = !fast; await relayout(); return; } // ^S
+    if (keys === '\x13') { // ^S: auto -> sharp -> fast
+      mode = nextMode();
+      lastStreamFrame = null;
+      drawStatus();
+      await applyViewport().catch(() => {});
+      return;
+    }
     await dispatchKeys(cdp, keys).catch(() => {});
   });
 
@@ -323,6 +409,7 @@ async function main() {
     if (msg) console.error(msg);
     cdp?.close();
     browser.close();
+    if (frameDir) rmSync(frameDir, { recursive: true, force: true });
     process.exit(code);
   }
   process.on('SIGTERM', () => quit(0));

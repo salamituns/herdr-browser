@@ -90,7 +90,7 @@ Or **Ctrl-click any `localhost` URL** in a Herdr pane. Without a URL it opens
 | click / scroll / type | Sent to the page |
 | `^L` or click the top bar | Edit the URL (`3000` → `http://localhost:3000`) |
 | `^R` | Reload |
-| `^S` | Toggle *sharp* (pixel-exact) / *fast* (half resolution, ~4× less data) |
+| `^S` | Cycle render mode: *auto* (default: half resolution while moving, full when still) → *sharp* (always full) → *fast* (always half) |
 | `^Q` | Close the pane (Chrome keeps running for the workspace's agents) |
 
 The status bar shows the URL and tab count. Run with `HERDR_BROWSER_DEBUG=1` to also
@@ -125,6 +125,15 @@ Design notes:
   capture ignores the emulated scale factor and would otherwise send 1× frames
   that the terminal enlarges (blurry). `HERDR_BROWSER_DEBUG=1` shows `frame:`
   (actual) next to `want:` (pane pixels), so a mismatch is easy to spot.
+- **Adaptive resolution.** At full Retina size, Chrome's PNG encoding is the
+  bottleneck (about 15–19 fps), not the terminal. In *auto* mode the pane streams
+  at half resolution while the page moves (about 26–29 fps) and replaces it with
+  one full-resolution capture once the page has been still for 150 ms.
+- **Frames go by file, not through the PTY.** Each frame is written to a temp
+  file and sent as a Kitty `t=t` path (about 60 bytes instead of about 1 MB of
+  base64). Herdr reads the file and deletes it. A startup probe falls back to
+  inline base64 if the terminal refuses (`HERDR_BROWSER_TRANSPORT=inline|file`
+  forces one).
 - **Latest frame wins.** If the terminal falls behind, intermediate frames are
   dropped rather than queued, so what you see never lags behind the page.
 - **Double buffering.** Frames alternate between two Kitty image ids and the new
@@ -134,8 +143,11 @@ Design notes:
 
 ## Known limits
 
-- About 15 fps while scrolling at Retina sharpness. Every change, even a blinking
-  text cursor, sends a full PNG frame.
+- Every change, even a blinking text cursor, still sends a whole frame (no
+  partial updates yet).
+- If one Herdr session is attached from two terminals (say Warp and Ghostty), the
+  cell size follows the one you last typed in, and the pane renders for that
+  terminal. Detach the one you're not using.
 - An agent pane moved to another workspace keeps using its original workspace's
   browser, because the MCP server reads `HERDR_WORKSPACE_ID` at startup.
 - If an agent resizes the page (`resize_page`), the pane resets it to fit itself.

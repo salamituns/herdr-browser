@@ -19,6 +19,14 @@ export function kittyPng(pngBase64, { id, cols, rows }) {
   return out;
 }
 
+// Same, but the terminal reads the PNG from a temp file (t=t) and deletes it.
+// ~60 bytes through the PTY instead of ~1 MB of base64 per frame. The path must
+// be in a temp dir and contain "tty-graphics-protocol" (Kitty spec for t=t).
+export function kittyPngFile(path, { id, cols, rows }) {
+  const b64 = Buffer.from(path).toString('base64');
+  return `\x1b_Ga=T,t=t,f=100,i=${id},p=1,c=${cols},r=${rows},C=1,q=2;${b64}\x1b\\`;
+}
+
 export const kittyDeleteAll = '\x1b_Ga=d,d=A,q=2\x1b\\';
 
 // Delete one image and free its data (uppercase I).
