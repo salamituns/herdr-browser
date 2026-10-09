@@ -67,8 +67,8 @@ agy mcp add herdr-browser "$(command -v node)" \
   ~/.local/state/herdr/plugins/devtuns.browser/current/src/mcp.js
 ```
 
-Cursor: add this under `mcpServers` in `~/.cursor/mcp.json` (with your full
-home path; Cursor doesn't expand `~`), then approve it once for the CLI with
+Cursor: add this under `mcpServers` in `~/.cursor/mcp.json` (use the full
+path), then approve it once for the CLI with
 `cursor-agent mcp enable herdr-browser`:
 
 ```json
