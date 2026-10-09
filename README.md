@@ -84,8 +84,8 @@ Or **Ctrl-click any `localhost` URL** in a Herdr pane. Without a URL it opens
 | `^S` | Toggle *sharp* (pixel-exact) / *fast* (half resolution, ~4× less data) |
 | `^Q` | Close the pane (Chrome keeps running for the workspace's agents) |
 
-The status bar shows the frame rate, throughput, render mode, cell size, tab count
-and the CDP port.
+The status bar shows the URL and tab count. Run with `HERDR_BROWSER_DEBUG=1` to also
+show the frame rate, throughput, render mode, cell size and CDP port.
 
 Plugin actions: `devtuns.browser.open`, `devtuns.browser.stop` (stops the
 workspace's Chrome). Chrome also stops automatically on `workspace.closed`.
