@@ -1,0 +1,43 @@
+id = "devtuns.browser"
+name = "Browser pane"
+version = "0.0.1"
+min_herdr_version = "0.9.0"
+description = "Spike: view and drive the workspace's headless Chrome inside a Herdr pane"
+platforms = ["macos", "linux"]
+
+# Kitty-graphics capability check for the outer terminal.
+[[panes]]
+id = "probe"
+title = "Graphics probe"
+placement = "split"
+command = ["node", "src/probe.js"]
+
+[[panes]]
+id = "view"
+title = "Browser"
+placement = "split"
+command = ["node", "src/main.js"]
+
+[[actions]]
+id = "open"
+title = "Open browser pane"
+contexts = ["workspace"]
+command = ["node", "src/open.js"]
+
+# Ctrl-click a localhost URL in any pane -> open it in the browser pane.
+[[link_handlers]]
+id = "localhost"
+title = "Open in browser pane"
+pattern = "^https?://(localhost|127\\.0\\.0\\.1|0\\.0\\.0\\.0)(:[0-9]+)?(/.*)?$"
+action = "open"
+
+[[actions]]
+id = "stop"
+title = "Stop workspace browser"
+contexts = ["workspace"]
+command = ["node", "src/stop.js"]
+
+# Chrome outlives panes and agents (they share it); stop it with its workspace.
+[[events]]
+on = "workspace.closed"
+command = ["node", "src/stop.js"]
