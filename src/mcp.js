@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 // MCP entrypoint for agents, and a drop-in replacement for chrome-devtools-mcp:
 //
-// - In a Herdr pane (HERDR_WORKSPACE_ID is set): attach chrome-devtools-mcp to
-//   this workspace's Chrome (starting it if needed), so the agent drives the
-//   browser the pane shows.
+// - In a Herdr pane (HERDR_WORKSPACE_ID is set, here or in an ancestor):
+//   attach chrome-devtools-mcp to this workspace's Chrome (starting it if
+//   needed), so the agent drives the browser the pane shows.
 // - Anywhere else (an IDE, a plain terminal, CI): run plain chrome-devtools-mcp
 //   with the given args, exactly as if it had been configured directly.
 //
@@ -14,13 +14,41 @@
 //   claude mcp add --scope user chrome-devtools -- node /path/to/src/mcp.js
 //
 // Set HERDR_BROWSER_MCP=standalone to opt out inside Herdr.
-import { spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { ensureChrome } from './chrome.js';
 import { profileDir } from './paths.js';
 
+// Some agents (cursor-agent) start MCP servers with a scrubbed environment, so
+// HERDR_WORKSPACE_ID may be missing even inside a Herdr pane. The agent process
+// itself still has it: look it up in our ancestors' environments.
+function ancestorWorkspace() {
+  let pid = process.ppid;
+  for (let depth = 0; depth < 8 && pid > 1; depth++) {
+    try {
+      let env, ppid;
+      if (process.platform === 'linux') {
+        env = readFileSync(`/proc/${pid}/environ`, 'utf8').split('\0');
+        ppid = Number(readFileSync(`/proc/${pid}/stat`, 'utf8').split(') ')[1].split(' ')[1]);
+      } else {
+        // macOS: `ps -E` appends the environment to the command line.
+        env = execFileSync('ps', ['-E', '-ww', '-o', 'command=', '-p', String(pid)], { encoding: 'utf8' }).split(' ');
+        ppid = Number(execFileSync('ps', ['-o', 'ppid=', '-p', String(pid)], { encoding: 'utf8' }));
+      }
+      const hit = env.find((kv) => kv.startsWith('HERDR_WORKSPACE_ID='));
+      if (hit) return hit.slice('HERDR_WORKSPACE_ID='.length).trim();
+      pid = ppid;
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
 const userArgs = process.argv.slice(2);
-const inHerdr = Boolean(process.env.HERDR_WORKSPACE_ID)
-  && process.env.HERDR_BROWSER_MCP !== 'standalone';
+const workspace = process.env.HERDR_BROWSER_MCP === 'standalone' ? null
+  : process.env.HERDR_WORKSPACE_ID || ancestorWorkspace();
+const inHerdr = Boolean(workspace);
 
 // Flags that choose or launch a browser. In Herdr the browser is the
 // workspace's, so these would conflict with --browserUrl; drop them.
@@ -48,7 +76,7 @@ function withoutLaunchFlags(args) {
 
 let args = userArgs;
 if (inHerdr) {
-  const { port } = await ensureChrome(profileDir());
+  const { port } = await ensureChrome(profileDir(workspace));
   args = [
     '--browserUrl', `http://127.0.0.1:${port}`,
     // These are local dev pages: don't send usage stats or URLs to Google.
