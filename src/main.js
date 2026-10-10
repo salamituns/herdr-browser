@@ -3,12 +3,25 @@
 // The pane follows tabs: when an agent opens a tab, the pane switches to it.
 import { connectCDP } from './cdp.js';
 import { ensureChrome } from './chrome.js';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { kittyPng, kittyPngFile, kittyDelete, kittyDeleteAll } from './kitty.js';
 import { dispatchKeys, dispatchMouse, parseMouse, stripMouse } from './input.js';
-import { profileDir, refreshCurrentLink } from './paths.js';
+import { profileDir, refreshCurrentLink, stateDir } from './paths.js';
+
+// Herdr closes the pane when this process exits, so one failed CDP call (an
+// agent closing the tab we were switching to, say) must not take it down.
+// Log the error and keep streaming.
+const LOG = join(stateDir, 'pane.log');
+function logError(err) {
+  try {
+    mkdirSync(stateDir, { recursive: true });
+    appendFileSync(LOG, `${new Date().toISOString()} ${err?.stack ?? err}\n`);
+  } catch {}
+}
+process.on('unhandledRejection', logError);
+process.on('uncaughtException', logError);
 
 const out = process.stdout;
 // Double buffering: alternate two image ids and place the new frame over the
@@ -141,7 +154,7 @@ function drawStatus() {
   // The URL gets the room; diagnostics only with HERDR_BROWSER_DEBUG=1.
   const right = DEBUG
     ? `${stats.fps}fps ${stats.kbps}KB/s drop:${stats.dropped} ${fileTransport ? 'file' : 'inline'} ${mode} ${scale}x frame:${stats.frameSize ?? '?'} want:${layout.viewport.width * scale}x${layout.viewport.height * scale} cell:${cell.w}x${cell.h}${cellSource === 'terminal' ? '' : '?'} tabs:${tabCount} cdp:${port} │ ^L url ^R reload ^S ${nextMode()} ^Q quit `
-    : `${tabCount > 1 ? `${tabCount} tabs │ ` : ''}${mode === 'auto' ? '' : `${mode} │ `}^L url  ^R reload  ^S ${nextMode()}  ^Q quit `;
+    : `${emulated() ? `${pageCss.width}×${pageCss.height} viewport │ ` : ''}${tabCount > 1 ? `${tabCount} tabs │ ` : ''}${mode === 'auto' ? '' : `${mode} │ `}^L url  ^R reload  ^S ${nextMode()}  ^Q quit `;
   const width = out.columns;
   const room = Math.max(0, width - right.length);
   const line = (left.length > room ? left.slice(0, Math.max(0, room - 1)) + '…' : left.padEnd(room)) + right;
@@ -168,6 +181,24 @@ function placeFrame(pngBase64, opts) {
   writeFileSync(path, Buffer.from(pngBase64, 'base64'));
   return kittyPngFile(path, opts);
 }
+// CSS size of the page as last streamed. An agent can emulate a viewport (a
+// 390px phone, say) that doesn't match the pane; then the frame is shown at its
+// real proportions, centered, instead of stretched across the pane.
+let pageCss = null;
+const emulated = () => pageCss && (Math.abs(pageCss.width - layout.viewport.width) > 2
+  || Math.abs(pageCss.height - layout.viewport.height) > 2);
+let frameBox = null; // cells the current frame occupies, below the status bar
+function fitFrame(w, h) {
+  const full = { col: 0, row: 0, cols: layout.cols, rows: layout.rows };
+  const ratio = (w / h) / ((layout.cols * cell.w) / (layout.rows * cell.h));
+  if (Math.abs(ratio - 1) < 0.03) return full; // the pane's own viewport (rounding)
+  if (ratio < 1) {
+    const cols = Math.max(1, Math.round(layout.cols * ratio));
+    return { ...full, col: Math.floor((layout.cols - cols) / 2), cols };
+  }
+  return { ...full, rows: Math.max(1, Math.round(layout.rows / ratio)) };
+}
+
 let lastShown = null;
 function showFrame(pngBase64) {
   if (pngBase64 === lastShown) return; // static page: nothing to redraw
@@ -178,13 +209,14 @@ function showFrame(pngBase64) {
   }
   writing = true;
   lastShown = pngBase64;
-  if (DEBUG) {
-    const ihdr = Buffer.from(pngBase64.slice(0, 32), 'base64');
-    stats.frameSize = `${ihdr.readUInt32BE(16)}x${ihdr.readUInt32BE(20)}`;
-  }
+  const ihdr = Buffer.from(pngBase64.slice(0, 32), 'base64');
+  const [w, h] = [ihdr.readUInt32BE(16), ihdr.readUInt32BE(20)];
+  if (DEBUG) stats.frameSize = `${w}x${h}`;
+  const box = fitFrame(w, h);
+  frameBox = box;
   const next = 1 - front;
-  const payload = `\x1b[${TOP_ROWS + 1};1H`
-    + placeFrame(pngBase64, { id: IMAGE_IDS[next], cols: layout.cols, rows: layout.rows })
+  const payload = `\x1b[${TOP_ROWS + 1 + box.row};${box.col + 1}H`
+    + placeFrame(pngBase64, { id: IMAGE_IDS[next], cols: box.cols, rows: box.rows })
     + kittyDelete(IMAGE_IDS[front]);
   front = next;
   stats.frames++;
@@ -286,9 +318,15 @@ async function main() {
     currentTarget = targetId;
     previous?.close();
 
-    session.on('Page.screencastFrame', ({ data, sessionId }) => {
+    session.on('Page.screencastFrame', ({ data, sessionId, metadata }) => {
       session.send('Page.screencastFrameAck', { sessionId }).catch(() => {});
       if (gen !== generation) return;
+      if (metadata?.deviceWidth) {
+        const css = { width: Math.round(metadata.deviceWidth), height: Math.round(metadata.deviceHeight) };
+        const changed = css.width !== pageCss?.width || css.height !== pageCss?.height;
+        pageCss = css;
+        if (changed) drawStatus();
+      }
       // A repaint with no visible change (e.g. caused by our own full-res
       // capture) must not replace the sharp frame or re-arm the timer.
       if (data === lastStreamFrame) return;
@@ -300,7 +338,7 @@ async function main() {
     session.on('Page.frameNavigated', ({ frame }) => {
       if (gen === generation && !frame.parentId) { currentUrl = frame.url; drawStatus(); }
     });
-    session.on('close', () => { if (gen === generation) showAnyTab(); });
+    session.on('close', () => { if (gen === generation) showAnyTab().catch(logError); });
 
     await session.send('Page.enable');
     const { frameTree } = await session.send('Page.getFrameTree');
@@ -355,6 +393,7 @@ async function main() {
     if (key === layoutKey) return;
     layoutKey = key;
     lastShown = null;
+    frameBox = null;
     lastStatus = '';
     out.write(kittyDeleteAll + '\x1b[2J');
     drawStatus();
@@ -372,7 +411,9 @@ async function main() {
     for (const ev of parseMouse(chunk)) {
       // Clicking the status bar edits the URL.
       if (ev.row <= TOP_ROWS && !ev.release && !(ev.code & 32)) { editing = ''; drawStatus(); continue; }
-      await dispatchMouse(cdp, ev, layout).catch(() => {});
+      const box = frameBox ?? { col: 0, row: 0, cols: layout.cols, rows: layout.rows };
+      const target = { topRows: TOP_ROWS + box.row, cols: box.cols, rows: box.rows, viewport: pageCss ?? layout.viewport };
+      await dispatchMouse(cdp, { ...ev, col: ev.col - box.col }, target).catch(() => {});
     }
     const keys = stripMouse(chunk);
     if (!keys) return;
