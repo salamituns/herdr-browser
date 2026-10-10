@@ -184,6 +184,11 @@ Design notes:
   Chrome tab, and the viewport follows whichever pane set it last. A pane takes
   it back when you focus it, but only from another pane (they record what they
   set), never from an agent that is emulating a device.
+- **Chrome starts on first use.** Every agent session starts its MCP server,
+  but `chrome-devtools-mcp` only contacts the browser on its first tool call, so
+  the launcher hands it a local proxy address that starts the workspace's Chrome
+  on that first request. Agents that never browse never start a Chrome. A lock
+  in the profile keeps the pane and an agent from launching two at once.
 - **Errors don't close the pane.** Uncaught errors go to
   `~/.local/state/herdr/plugins/devtuns.browser/pane.log` and the pane keeps
   running.

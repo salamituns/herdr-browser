@@ -16,6 +16,7 @@
 // Set HERDR_BROWSER_MCP=standalone to opt out inside Herdr.
 import { execFileSync, spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import { createServer, request } from 'node:http';
 import { ensureChrome } from './chrome.js';
 import { profileDir } from './paths.js';
 
@@ -140,11 +141,43 @@ function withoutLaunchFlags(args) {
   return kept;
 }
 
+// Every agent session starts its MCP servers, but most never touch the
+// browser, so don't start Chrome until it's needed. chrome-devtools-mcp only
+// contacts --browserUrl (GET /json/version) on its first tool call: point it at
+// a local proxy that starts the workspace's Chrome on the first request and
+// forwards to it. With the Host header rewritten, the WebSocket URL in the
+// reply names Chrome's real port, so the DevTools connection goes straight to
+// Chrome and never through the proxy.
+async function lazyBrowserUrl(profile) {
+  let starting = null; // one ensureChrome at a time; it also revives a dead Chrome
+  const chromePort = async () => {
+    starting ??= ensureChrome(profile).finally(() => { starting = null; });
+    return (await starting).port;
+  };
+  const server = createServer(async (req, res) => {
+    try {
+      const port = await chromePort();
+      // Chrome builds the WebSocket URL from the Host header: name its real port.
+      const headers = { ...req.headers, host: `127.0.0.1:${port}` };
+      const upstream = request({ host: '127.0.0.1', port, path: req.url, method: req.method, headers }, (up) => {
+        res.writeHead(up.statusCode, up.headers);
+        up.pipe(res);
+      });
+      upstream.on('error', (err) => { res.writeHead(502); res.end(String(err)); });
+      req.pipe(upstream);
+    } catch (err) {
+      res.writeHead(502);
+      res.end(String(err));
+    }
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  return `http://127.0.0.1:${server.address().port}`;
+}
+
 let args = userArgs;
 if (inHerdr) {
-  const { port } = await ensureChrome(profileDir(workspace));
   args = [
-    '--browserUrl', `http://127.0.0.1:${port}`,
+    '--browserUrl', await lazyBrowserUrl(profileDir(workspace)),
     // These are local dev pages: don't send usage stats or URLs to Google.
     '--no-usage-statistics',
     '--no-performance-crux',

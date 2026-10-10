@@ -4,7 +4,7 @@
 // Chrome is detached: it outlives whichever pane or agent started it, and is
 // stopped by the workspace.closed hook (src/stop.js).
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
 const CHROME = process.env.HERDR_BROWSER_CHROME
@@ -28,9 +28,40 @@ export async function livePort(profileDir) {
   }
 }
 
+// The pane and an agent's MCP server can ask for the same workspace's Chrome at
+// the same moment (the pane auto-opens on the agent's first browser call), so
+// only one process may launch it: an atomic mkdir is the lock, and the others
+// wait for that Chrome to come up. A lock older than 30s is left from a crash.
+async function withLaunchLock(profileDir, fn) {
+  const lock = join(profileDir, '.herdr-launching');
+  for (let i = 0; ; i++) {
+    try {
+      mkdirSync(lock);
+      break;
+    } catch {
+      const running = await livePort(profileDir);
+      if (running) return { port: running };
+      try { if (Date.now() - statSync(lock).mtimeMs > 30000) rmSync(lock, { recursive: true, force: true }); } catch {}
+      if (i > 150) throw new Error('timed out waiting for another process to start Chrome');
+      await sleep(100);
+    }
+  }
+  try {
+    return await fn();
+  } finally {
+    rmSync(lock, { recursive: true, force: true });
+  }
+}
+
 export async function ensureChrome(profileDir) {
   mkdirSync(profileDir, { recursive: true });
   const running = await livePort(profileDir);
+  if (running) return { port: running };
+  return withLaunchLock(profileDir, () => launchChrome(profileDir));
+}
+
+async function launchChrome(profileDir) {
+  const running = await livePort(profileDir); // started while we waited for the lock
   if (running) return { port: running };
 
   const child = spawn(CHROME, [
