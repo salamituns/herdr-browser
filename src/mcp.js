@@ -19,24 +19,42 @@ import { readFileSync } from 'node:fs';
 import { ensureChrome } from './chrome.js';
 import { profileDir } from './paths.js';
 
+const herdrBin = process.env.HERDR_BIN_PATH ?? 'herdr';
+
+function processInfo(pid) {
+  if (process.platform === 'linux') {
+    return {
+      env: readFileSync(`/proc/${pid}/environ`, 'utf8').split('\0'),
+      ppid: Number(readFileSync(`/proc/${pid}/stat`, 'utf8').split(') ')[1].split(' ')[1]),
+      name: readFileSync(`/proc/${pid}/comm`, 'utf8').trim(),
+    };
+  }
+  // macOS: `ps -E` appends the environment to the command line. It shows
+  // nothing for SIP-protected binaries (/bin/sh, /bin/bash), which is fine:
+  // the agent process above them is what carries the variable.
+  const ps = (...args) => execFileSync('ps', [...args, '-p', String(pid)], { encoding: 'utf8' }).trim();
+  return {
+    env: ps('-E', '-ww', '-o', 'command=').split(' '),
+    ppid: Number(ps('-o', 'ppid=')),
+    name: ps('-o', 'comm=').split('/').pop(),
+  };
+}
+
 // Some agents (cursor-agent) start MCP servers with a scrubbed environment, so
 // HERDR_WORKSPACE_ID may be missing even inside a Herdr pane. The agent process
-// itself still has it: look it up in our ancestors' environments.
+// itself still has it: take it from the nearest ancestor that does. Only trust
+// it if the chain leads to the Herdr server, though. Codex runs MCP servers from
+// a shared daemon that outlives the pane it started in (it ends up under
+// launchd), so its environment names whichever workspace launched it first.
 function ancestorWorkspace() {
+  let found = null;
   let pid = process.ppid;
-  for (let depth = 0; depth < 8 && pid > 1; depth++) {
+  for (let depth = 0; depth < 12 && pid > 1; depth++) {
     try {
-      let env, ppid;
-      if (process.platform === 'linux') {
-        env = readFileSync(`/proc/${pid}/environ`, 'utf8').split('\0');
-        ppid = Number(readFileSync(`/proc/${pid}/stat`, 'utf8').split(') ')[1].split(' ')[1]);
-      } else {
-        // macOS: `ps -E` appends the environment to the command line.
-        env = execFileSync('ps', ['-E', '-ww', '-o', 'command=', '-p', String(pid)], { encoding: 'utf8' }).split(' ');
-        ppid = Number(execFileSync('ps', ['-o', 'ppid=', '-p', String(pid)], { encoding: 'utf8' }));
-      }
+      const { env, ppid, name } = processInfo(pid);
+      if (name === 'herdr') return found;
       const hit = env.find((kv) => kv.startsWith('HERDR_WORKSPACE_ID='));
-      if (hit) return hit.slice('HERDR_WORKSPACE_ID='.length).trim();
+      found ??= hit ? hit.slice('HERDR_WORKSPACE_ID='.length).trim() : null;
       pid = ppid;
     } catch {
       return null;
@@ -45,9 +63,26 @@ function ancestorWorkspace() {
   return null;
 }
 
+// Last resort (the Codex daemon case): the agent starts us in its session's
+// directory, so find the Herdr workspace with an agent pane in that directory.
+function cwdWorkspace() {
+  let panes;
+  try {
+    panes = JSON.parse(execFileSync(herdrBin, ['pane', 'list'], { encoding: 'utf8', timeout: 3000 })).result.panes;
+  } catch {
+    return null; // Herdr isn't running or isn't installed: not in Herdr
+  }
+  const cwd = process.cwd();
+  // Only agent panes count, so a plain shell in the same directory doesn't pull
+  // an agent running outside Herdr in. Several workspaces on one directory is
+  // ambiguous: prefer the focused pane's, then the first.
+  const agents = panes.filter((p) => p.agent && (p.cwd === cwd || p.foreground_cwd === cwd));
+  return (agents.find((p) => p.focused) ?? agents[0])?.workspace_id ?? null;
+}
+
 const userArgs = process.argv.slice(2);
 const workspace = process.env.HERDR_BROWSER_MCP === 'standalone' ? null
-  : process.env.HERDR_WORKSPACE_ID || ancestorWorkspace();
+  : process.env.HERDR_WORKSPACE_ID || ancestorWorkspace() || cwdWorkspace();
 const inHerdr = Boolean(workspace);
 
 // Flags that choose or launch a browser. In Herdr the browser is the
