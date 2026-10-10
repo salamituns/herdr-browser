@@ -3,7 +3,7 @@
 // The pane follows tabs: when an agent opens a tab, the pane switches to it.
 import { connectCDP } from './cdp.js';
 import { ensureChrome } from './chrome.js';
-import { appendFileSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { kittyPng, kittyPngFile, kittyDelete, kittyDeleteAll } from './kitty.js';
@@ -185,7 +185,7 @@ function placeFrame(pngBase64, opts) {
 // 390px phone, say) that doesn't match the pane; then the frame is shown at its
 // real proportions, centered, instead of stretched across the pane.
 let pageCss = null;
-const emulated = () => pageCss && (Math.abs(pageCss.width - layout.viewport.width) > 2
+const emulated = () => pageCss && layout && (Math.abs(pageCss.width - layout.viewport.width) > 2
   || Math.abs(pageCss.height - layout.viewport.height) > 2);
 let frameBox = null; // cells the current frame occupies, below the status bar
 function fitFrame(w, h) {
@@ -264,6 +264,11 @@ async function main() {
     return list.filter((t) => t.type === 'page');
   }
 
+  // Every browser pane in the workspace shows the same tab, and the viewport
+  // belongs to whichever set it last. Panes record theirs here so a pane that
+  // gains focus can take it back from another pane, but not from an agent
+  // that is emulating a phone on purpose.
+  const viewportFile = join(profileDir(), 'herdr-browser-viewport.json');
   async function applyViewport() {
     await cdp.send('Emulation.setDeviceMetricsOverride', {
       width: layout.viewport.width,
@@ -271,6 +276,7 @@ async function main() {
       deviceScaleFactor: scale,
       mobile: false,
     });
+    try { writeFileSync(viewportFile, JSON.stringify(layout.viewport)); } catch {}
     await cdp.send('Page.stopScreencast').catch(() => {});
     // startScreencast fails with "Not attached to an active page" while a
     // cross-site navigation is swapping renderers; once running it survives them.
@@ -401,13 +407,28 @@ async function main() {
   }
   out.on('resize', relayout);
 
+  async function onFocus() {
+    if (!emulated()) return;
+    let set = null;
+    try { set = JSON.parse(readFileSync(viewportFile, 'utf8')); } catch {}
+    if (set && set.width === pageCss.width && set.height === pageCss.height) {
+      // Re-sending our unchanged override is a no-op while another session's
+      // override is in effect; clearing ours first makes the new one take.
+      await cdp.send('Emulation.clearDeviceMetricsOverride').catch(() => {});
+      await applyViewport().catch(logError);
+    }
+  }
+
   // Mouse: buttons + drag (1002), SGR encoding (1006). Size reports (2048).
-  out.write('\x1b[?1000h\x1b[?1002h\x1b[?1006h\x1b[?2048h');
+  // Focus in/out (1004).
+  out.write('\x1b[?1000h\x1b[?1002h\x1b[?1006h\x1b[?2048h\x1b[?1004h');
 
   process.stdin.on('data', async (buf) => {
     const sized = takeSizeReports(buf.toString());
     if (sized.changed) await relayout();
-    const chunk = sized.rest;
+    let chunk = sized.rest;
+    if (chunk.includes('\x1b[I')) onFocus();
+    chunk = chunk.replace(/\x1b\[[IO]/g, ''); // focus reports aren't keystrokes
     for (const ev of parseMouse(chunk)) {
       // Clicking the status bar edits the URL.
       if (ev.row <= TOP_ROWS && !ev.release && !(ev.code & 32)) { editing = ''; drawStatus(); continue; }
@@ -446,7 +467,7 @@ async function main() {
   // Closing the pane leaves Chrome running for the workspace's agents;
   // the workspace.closed hook stops it.
   function quit(code, msg) {
-    out.write('\x1b[?2048l\x1b[?1006l\x1b[?1002l\x1b[?1000l' + kittyDeleteAll + '\x1b[?25h\x1b[?1049l');
+    out.write('\x1b[?1004l\x1b[?2048l\x1b[?1006l\x1b[?1002l\x1b[?1000l' + kittyDeleteAll + '\x1b[?25h\x1b[?1049l');
     if (msg) console.error(msg);
     cdp?.close();
     browser.close();

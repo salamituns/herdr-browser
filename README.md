@@ -118,6 +118,10 @@ herdr plugin pane open --plugin devtuns.browser --entrypoint view \
   --env HERDR_BROWSER_URL=http://localhost:3000
 ```
 
+You usually don't have to: **the first time an agent uses a browser tool, a
+browser pane opens next to the agent's pane** (unless that tab already has
+one), so you can watch it work. `HERDR_BROWSER_AUTO_OPEN=0` turns this off.
+
 Or **Ctrl-click any `localhost` URL** in a Herdr pane. Without a URL it opens
 `http://localhost:3000` (or whatever page the workspace's Chrome is already on).
 
@@ -129,7 +133,9 @@ Or **Ctrl-click any `localhost` URL** in a Herdr pane. Without a URL it opens
 | `^S` | Cycle render mode: *auto* (default: half resolution while moving, full when still) → *sharp* (always full) → *fast* (always half) |
 | `^Q` | Close the pane (Chrome keeps running for the workspace's agents) |
 
-The status bar shows the URL and tab count. Run with `HERDR_BROWSER_DEBUG=1` to also
+The status bar shows the URL and tab count. When an agent emulates a device
+(say a 390×844 phone), the page is shown at those proportions, centered, and the
+status bar shows the size. Run with `HERDR_BROWSER_DEBUG=1` to also
 show the frame rate, throughput, render mode, cell size and CDP port.
 
 Plugin actions: `devtuns.browser.open`, `devtuns.browser.stop` (stops the
@@ -144,7 +150,7 @@ workspace's Chrome). Chrome also stops automatically on `workspace.closed`.
 | `src/input.js` | SGR mouse parsing, cell → page coordinates, wheel decoding and coalescing, keys |
 | `src/kitty.js` | Kitty graphics encoding (chunked PNG, double-buffered image ids) |
 | `src/chrome.js` | Start or reuse the workspace's detached headless Chrome |
-| `src/mcp.js` | Agent entrypoint: start/reuse that Chrome, then run `chrome-devtools-mcp --browserUrl` |
+| `src/mcp.js` | Agent entrypoint and drop-in for `chrome-devtools-mcp`: find the agent's workspace, attach to its Chrome, open a pane on the first tool call |
 | `src/stop.js` | Stop a workspace's Chrome (event hook and action) |
 | `src/paths.js` | Shared state paths (`~/.local/state/herdr/plugins/devtuns.browser`) and the `current` install link |
 | `src/startup.js` | Startup hook: refresh the `current` link |
@@ -174,6 +180,13 @@ Design notes:
   dropped rather than queued, so what you see never lags behind the page.
 - **Double buffering.** Frames alternate between two Kitty image ids and the new
   one is placed before the old one is deleted, so there's never an empty pane.
+- **One tab, several panes.** Every browser pane in a workspace shows the same
+  Chrome tab, and the viewport follows whichever pane set it last. A pane takes
+  it back when you focus it, but only from another pane (they record what they
+  set), never from an agent that is emulating a device.
+- **Errors don't close the pane.** Uncaught errors go to
+  `~/.local/state/herdr/plugins/devtuns.browser/pane.log` and the pane keeps
+  running.
 - **Wheel decoding.** Trackpads mix horizontal ticks into vertical swipes. Ticks
   are decoded by direction and coalesced to one event per frame.
 
@@ -186,7 +199,12 @@ Design notes:
   terminal. Detach the one you're not using.
 - An agent pane moved to another workspace keeps using its original workspace's
   browser, because the MCP server reads `HERDR_WORKSPACE_ID` at startup.
-- If an agent resizes the page (`resize_page`), the pane resets it to fit itself.
+- Resizing the pane (or switching render mode) resets an agent's emulated
+  viewport to the pane's size.
+- Interactive Codex starts MCP servers from a shared daemon, so the launcher
+  finds the agent's workspace by its working directory. Two Codex sessions in
+  one directory are told apart by which one is working when the first browser
+  call comes in.
 
 ## License
 
