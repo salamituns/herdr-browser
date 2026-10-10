@@ -69,7 +69,17 @@ claude mcp add --scope user chrome-devtools -- \
 # Antigravity CLI (re-adding an existing name updates it)
 agy mcp add chrome-devtools-mcp "$(command -v node)" \
   ~/.local/state/herdr/plugins/devtuns.browser/current/src/mcp.js
+
+# Codex CLI
+codex mcp add chrome-devtools -- "$(command -v node)" \
+  ~/.local/state/herdr/plugins/devtuns.browser/current/src/mcp.js
 ```
+
+Codex lists MCP tools as deferred (in `ALL_TOOLS`) rather than up front, and
+may answer that the browser tools are unavailable without looking. A line in
+`~/.codex/AGENTS.md` fixes that, for example: "For anything in a browser, use
+the `chrome-devtools` MCP tools; they may be deferred, so look them up in
+ALL_TOOLS."
 
 Cursor: set your `chrome-devtools` entry in `~/.cursor/mcp.json` to this (use
 the full path), then approve it once for the CLI with
