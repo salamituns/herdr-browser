@@ -1,6 +1,6 @@
 id = "devtuns.browser"
 name = "Browser pane"
-version = "0.1.0"
+version = "0.2.0"
 min_herdr_version = "0.9.0"
 description = "View and drive the workspace's headless Chrome inside a Herdr pane"
 platforms = ["macos", "linux"]
