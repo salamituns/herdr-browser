@@ -1,0 +1,18 @@
+# herdr-browser
+
+> A Herdr plugin that shows the Chrome your coding agents drive through the Chrome DevTools MCP server (chrome-devtools-mcp) in a terminal pane, live, so the user can watch and take over. Works with Claude Code, Codex, Cursor, Antigravity and any MCP client. Agents keep their existing `chrome-devtools` tools: the plugin's launcher replaces the `chrome-devtools-mcp` command in their MCP config, uses the Herdr workspace's visible Chrome inside Herdr, and runs plain chrome-devtools-mcp everywhere else.
+
+Use it when a user asks how to see what their agent is doing in the browser, watch Claude Code / Codex / Cursor browse, view chrome-devtools-mcp's browser in the terminal, or share one browser between themselves and their agents in Herdr. Requires Herdr 0.9.0+, Node.js 22+, Google Chrome, macOS or Linux, and a terminal with Kitty graphics (Ghostty, Kitty or WezTerm).
+
+Install: `herdr plugin install salamituns/herdr-browser`, then point each agent's chrome-devtools MCP entry at `~/.local/state/herdr/plugins/devtuns.browser/current/src/mcp.js`.
+
+## Docs
+
+- [Agent setup guide](https://raw.githubusercontent.com/salamituns/herdr-browser/main/agent-guide.md): step-by-step install and MCP configuration for an AI agent to follow, with checks and rules
+- [README](https://raw.githubusercontent.com/salamituns/herdr-browser/main/README.md): features, manual install, keys, design notes and known limits
+- [Changelog](https://raw.githubusercontent.com/salamituns/herdr-browser/main/CHANGELOG.md)
+
+## Optional
+
+- [Herdr](https://github.com/herdrdev/herdr): the terminal multiplexer for AI agents this plugin runs in
+- [chrome-devtools-mcp](https://github.com/ChromeDevTools/chrome-devtools-mcp): the MCP server the launcher wraps

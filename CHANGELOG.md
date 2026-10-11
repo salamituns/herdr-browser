@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- README leads with what the plugin is for: watching the browser your agents
+  already drive through `chrome-devtools-mcp`.
+- `agent-guide.md`: setup steps an AI agent can follow to install the plugin
+  and repoint the user's existing chrome-devtools MCP entries, with checks.
+- `llms.txt` for agents and search tools.
+
 ## 0.2.0 (2026-10-10)
 
 Agents and the pane now share one browser out of the box, in Claude Code,

@@ -4,7 +4,7 @@
   "private": true,
   "license": "MIT",
   "type": "module",
-  "description": "A browser pane for Herdr (headless Chrome -> Kitty graphics)",
+  "description": "Herdr plugin: watch your coding agents' Chrome DevTools MCP browser live in a terminal pane",
   "scripts": {
     "probe": "node src/probe.js",
     "start": "node src/main.js"

@@ -1,26 +1,50 @@
 # herdr-browser
 
-A browser pane for [Herdr](https://github.com/ogulcancelik/herdr). See and click
-through what your agents are building without leaving the terminal, in the
-**same browser your agents drive**.
+**Watch your coding agents use the browser, inside
+[Herdr](https://github.com/herdrdev/herdr).**
+
+Claude Code, Codex, Cursor and Antigravity drive Chrome through the Chrome
+DevTools MCP server (`chrome-devtools-mcp`), but that Chrome is usually
+invisible. This plugin shows it in a Herdr pane next to the agent, live, and
+lets you click and type into the same page. Your agents keep the
+`chrome-devtools` tools they already use: nothing new to install in the agent,
+nothing new for it to learn.
 
 ```
 agent pane (workspace w8)                     browser pane (w8)
    └─ mcp.js → chrome-devtools-mcp ──┐   ┌── main.js (follows new tabs)
                                      ▼   ▼
                      headless Chrome for w8 (one per workspace)
-                     stopped when the workspace closes
+                     started on first use, stopped when the workspace closes
 ```
 
-- **One headless Chrome per Herdr workspace.** Each project has its own cookies
-  and logins.
-- **The pane streams the page** as Kitty graphics and forwards your mouse and
-  keyboard to it over the Chrome DevTools Protocol.
-- **Agents attach to the same Chrome** through `chrome-devtools-mcp`, so you see
-  every page they open and can take over at any time. When an agent opens a tab,
-  the pane switches to it.
+- **A drop-in for `chrome-devtools-mcp`.** Point your existing
+  `chrome-devtools` MCP entry at the plugin's launcher. Inside Herdr it drives
+  the workspace's visible Chrome; anywhere else it runs plain
+  `chrome-devtools-mcp`, unchanged.
+- **The pane opens itself** next to the agent the first time it uses a browser
+  tool, and switches to each tab the agent opens.
+- **One Chrome per Herdr workspace,** with its own cookies and logins, started
+  on the first browser call.
+- **Take over at any time:** mouse, keyboard, scrolling and the URL bar go to
+  the same page. Phone emulation by the agent is shown at its real proportions.
 
-> Status: v0.1.0, early but usable. macOS and Linux.
+> v0.2.0, macOS and Linux. Looking for a general-purpose browser in the
+> terminal instead? See [Related projects](#related-projects).
+
+## Let your agent set it up
+
+In an agent running inside a Herdr pane, paste:
+
+```
+Set up the herdr-browser Herdr plugin for me by following
+https://raw.githubusercontent.com/salamituns/herdr-browser/main/agent-guide.md
+```
+
+[`agent-guide.md`](agent-guide.md) has the agent check the requirements,
+install the plugin, repoint your existing `chrome-devtools` entries (backing up
+each config file first) and verify that a pane opens. It asks before restarting
+agent sessions. To do it by hand, read on.
 
 ## Requirements
 
@@ -210,6 +234,15 @@ Design notes:
   finds the agent's workspace by its working directory. Two Codex sessions in
   one directory are told apart by which one is working when the first browser
   call comes in.
+
+## Related projects
+
+- [zenbu-labs/terminal-browser](https://github.com/zenbu-labs/terminal-browser):
+  a full browser inside your terminal. Pick it if you want to browse yourself.
+- [StructuPath/herdr-browser](https://github.com/StructuPath/herdr-browser): a
+  Herdr pane for [agent-browser](https://github.com/vercel-labs/agent-browser)
+  sessions. Pick it if your agents use agent-browser rather than
+  `chrome-devtools-mcp`.
 
 ## License
 
