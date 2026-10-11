@@ -113,6 +113,7 @@ function openPaneForAgent() {
   const open = spawn(herdrBin, [
     'plugin', 'pane', 'open', '--plugin', 'devtuns.browser', '--entrypoint', 'view',
     '--placement', 'split', '--target-pane', pane, '--direction', 'right', '--no-focus',
+    '--env', 'HERDR_BROWSER_WATCH=1',
   ], { stdio: 'ignore' });
   open.on('error', () => {});
 }

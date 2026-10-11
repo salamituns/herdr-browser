@@ -386,8 +386,11 @@ async function main() {
   await (existing.length ? attach(existing[0].id) : showAnyTab());
   await browser.send('Target.setDiscoverTargets', { discover: true });
 
-  const startUrl = process.env.HERDR_BROWSER_URL ?? process.argv[2]
-    ?? (currentUrl === 'about:blank' ? 'http://localhost:3000' : null);
+  // A pane auto-opened by an agent's browser call only watches: navigating
+  // here would race the agent's own navigation and take its tab away.
+  const startUrl = process.env.HERDR_BROWSER_WATCH === '1' ? null
+    : process.env.HERDR_BROWSER_URL ?? process.argv[2]
+      ?? (currentUrl === 'about:blank' ? 'http://localhost:3000' : null);
   if (startUrl) await cdp.send('Page.navigate', { url: startUrl });
 
   // Re-render only when the pixel layout really changed: a resize fires both
