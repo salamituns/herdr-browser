@@ -14,7 +14,8 @@ Cursor, Codex and Antigravity.
   servers with a scrubbed environment, and interactive Codex runs them from a
   shared daemon that outlives its pane.
 - The first browser tool call opens a browser pane next to the agent, unless
-  its tab already has one (`HERDR_BROWSER_AUTO_OPEN=0` to turn off).
+  its tab already has one (`HERDR_BROWSER_AUTO_OPEN=0` to turn off). That pane
+  only watches: it never navigates the agent's tab.
 - Chrome starts on the first browser tool call instead of when the agent
   starts, so agents that never browse never start a Chrome.
 
