@@ -6,6 +6,8 @@
   `src/mcp.js` wraps `chrome-devtools-mcp`. Inside Herdr it attaches to the
   workspace Chrome with `--cdp-endpoint` (and drops `--isolated`, so the pane
   can follow the page). Shared launcher code lives in `src/agent-mcp.js`.
+- Droid (Factory) is supported and documented: point the `chrome-devtools` and
+  `playwright` entries in `~/.factory/mcp.json` at the launchers.
 - README leads with what the plugin is for: watching the browser your agents
   already drive through `chrome-devtools-mcp`.
 - `agent-guide.md`: setup steps an AI agent can follow to install the plugin

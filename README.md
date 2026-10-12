@@ -3,7 +3,7 @@
 **Watch your coding agents use the browser, inside
 [Herdr](https://github.com/herdrdev/herdr).**
 
-Claude Code, Codex, Cursor and Antigravity drive Chrome through
+Claude Code, Codex, Cursor, Droid and Antigravity drive Chrome through
 `chrome-devtools-mcp` or `@playwright/mcp`, but that Chrome is usually
 invisible. This plugin shows it in a Herdr pane next to the agent, live, and
 lets you click and type into the same page. Your agents keep the browser tools
@@ -42,8 +42,8 @@ https://raw.githubusercontent.com/salamituns/herdr-browser/main/agent-guide.md
 ```
 
 [`agent-guide.md`](agent-guide.md) has the agent check the requirements,
-install the plugin, repoint your existing `chrome-devtools` entries (backing up
-each config file first) and verify that a pane opens. It asks before restarting
+install the plugin, repoint your existing `chrome-devtools` and `playwright`
+entries (backing up each config file first) and verify that a pane opens. It asks before restarting
 agent sessions. To do it by hand, read on.
 
 ## Requirements
@@ -118,8 +118,21 @@ the full path), then approve it once for the CLI with
 }
 ```
 
-Droid: set the `chrome-devtools` entry in `~/.factory/mcp.json` the same way
-(full paths for both `node` and `mcp.js`).
+Droid: set the `chrome-devtools` entry under `mcpServers` in
+`~/.factory/mcp.json`. Droid needs full paths for both `node` (from
+`command -v node`) and `mcp.js`:
+
+```json
+"chrome-devtools": {
+  "type": "stdio",
+  "command": "/opt/homebrew/bin/node",
+  "args": ["/Users/you/.local/state/herdr/plugins/devtuns.browser/current/src/mcp.js"],
+  "disabled": false
+}
+```
+
+Droid treats MCP tool calls as high-risk, so in `droid exec` they need
+`--auto high`. Interactive sessions ask for approval as usual.
 
 Keep any arguments you had (`--headless`, `--isolated`, `--channel`, ...).
 They apply outside Herdr; inside Herdr, flags that choose or launch a browser
@@ -138,11 +151,17 @@ drops flags that would launch or isolate a different browser (`--browser`,
 follow. Keep those flags for when the same entry runs outside Herdr.
 
 ```sh
+# Claude Code (use the scope your entry was in, e.g. --scope local)
 claude mcp add --scope user playwright -- \
   node ~/.local/state/herdr/plugins/devtuns.browser/current/src/playwright-mcp.js
+
+# Codex CLI (if the entry has [mcp_servers.playwright.tools.*] approval
+# settings, edit command/args in ~/.codex/config.toml instead: remove drops them)
+codex mcp add playwright -- "$(command -v node)" \
+  ~/.local/state/herdr/plugins/devtuns.browser/current/src/playwright-mcp.js
 ```
 
-Cursor:
+Cursor and Droid (`~/.cursor/mcp.json`, `~/.factory/mcp.json`):
 
 ```json
 "playwright": {
