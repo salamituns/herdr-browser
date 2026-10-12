@@ -110,8 +110,9 @@ full absolute path, such as `/Users/name/.local/state/...`.
 
 ## 4. Point each agent's chrome-devtools entry at the launcher
 
-Use `"$(command -v node)"` as the command where a full path is safer, since some
-agents start MCP servers with a minimal `PATH`.
+Use the full path from `command -v node` as the command everywhere (the
+examples write `"$(command -v node)"`), since some agents start MCP servers
+with a minimal `PATH`.
 
 ### Claude Code
 
@@ -124,8 +125,8 @@ remove command), then add it back in the same scope with any extra arguments
 appended after `mcp.js`:
 
 ```sh
-claude mcp remove chrome-devtools -s user
-claude mcp add --scope user chrome-devtools -- node "$LAUNCHER"
+claude mcp remove chrome-devtools -s user    # use the scope it was in
+claude mcp add --scope user chrome-devtools -- "$(command -v node)" "$LAUNCHER"
 ```
 
 If it doesn't exist, add it with `--scope user`. Check: `claude mcp get
@@ -135,9 +136,22 @@ chrome-devtools` shows `Args: .../current/src/mcp.js`.
 
 ```sh
 codex mcp get chrome-devtools
+```
+
+**Before removing an existing entry,** look in `~/.codex/config.toml` for other
+settings under it, such as `[mcp_servers.chrome-devtools.tools.<tool>]`
+sections with `approval_mode`. `codex mcp remove` deletes those too, and
+`codex mcp add` doesn't bring them back. If there are any, edit only `command`
+and `args` in `[mcp_servers.chrome-devtools]` directly instead (after the
+backup). Otherwise:
+
+```sh
 codex mcp remove chrome-devtools    # only if it exists
 codex mcp add chrome-devtools -- "$(command -v node)" "$LAUNCHER"
 ```
+
+Either way, diff the file against its backup afterwards: only `command` and
+`args` should differ.
 
 Codex lists MCP tools as deferred (in `ALL_TOOLS`) and may claim browser tools
 are unavailable without looking them up. Append this to `~/.codex/AGENTS.md`
@@ -157,13 +171,14 @@ Check: `codex mcp get chrome-devtools` shows the launcher in `args`.
 ### Cursor (IDE and cursor-agent)
 
 Edit `~/.cursor/mcp.json` (and `.cursor/mcp.json` in the project, if it has a
-chrome-devtools entry). Find the entry whose args mention `chrome-devtools-mcp`,
+chrome-devtools entry). Find the entry whose `command` or `args` mention
+`chrome-devtools-mcp`,
 whatever its key, and set its command and the launcher path, keeping extra
 arguments after it:
 
 ```json
 "chrome-devtools": {
-  "command": "node",
+  "command": "/full/path/to/node",
   "args": ["/absolute/path/.local/state/herdr/plugins/devtuns.browser/current/src/mcp.js"]
 }
 ```
@@ -221,12 +236,22 @@ flags so the pane follows the page; those flags still apply outside Herdr.
 ### Claude Code
 
 ```sh
-claude mcp get playwright
-claude mcp remove playwright -s user    # only if it exists; match its scope
-claude mcp add --scope user playwright -- node "$PLAYWRIGHT_LAUNCHER"
+claude mcp get playwright   # note the Scope: user, project or local
+```
+
+Remove it in the scope it was in and add it back in the same scope. For
+example, for a local-scope entry, run these from that project's directory:
+
+```sh
+claude mcp remove playwright -s local
+claude mcp add --scope local playwright -- "$(command -v node)" "$PLAYWRIGHT_LAUNCHER"
 ```
 
 ### Codex CLI
+
+Same caution as step 4: check for `[mcp_servers.playwright.tools.<tool>]`
+settings first, and edit `command` and `args` directly if there are any.
+Otherwise:
 
 ```sh
 codex mcp get playwright
@@ -236,12 +261,14 @@ codex mcp add playwright -- "$(command -v node)" "$PLAYWRIGHT_LAUNCHER"
 
 ### Cursor (IDE and cursor-agent)
 
-Find the entry whose args mention `@playwright/mcp` or `playwright/mcp`,
-whatever its key, and point it at the Playwright launcher:
+Find the entry whose `command` or `args` mention `@playwright/mcp`, whatever
+its key. The package is often inside the command string itself, such as
+`"command": "npx @playwright/mcp@latest"` with no args. Point it at the
+Playwright launcher, keeping the key and any other fields (`env`):
 
 ```json
 "playwright": {
-  "command": "node",
+  "command": "/full/path/to/node",
   "args": ["/absolute/path/.local/state/herdr/plugins/devtuns.browser/current/src/playwright-mcp.js"]
 }
 ```
