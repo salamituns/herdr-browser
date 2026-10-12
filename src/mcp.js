@@ -14,109 +14,10 @@
 //   claude mcp add --scope user chrome-devtools -- node /path/to/src/mcp.js
 //
 // Set HERDR_BROWSER_MCP=standalone to opt out inside Herdr.
-import { execFileSync, spawn } from 'node:child_process';
-import { readFileSync } from 'node:fs';
-import { createServer, request } from 'node:http';
-import { ensureChrome } from './chrome.js';
 import { profileDir } from './paths.js';
-
-const herdrBin = process.env.HERDR_BIN_PATH ?? 'herdr';
-
-function processInfo(pid) {
-  if (process.platform === 'linux') {
-    return {
-      env: readFileSync(`/proc/${pid}/environ`, 'utf8').split('\0'),
-      ppid: Number(readFileSync(`/proc/${pid}/stat`, 'utf8').split(') ')[1].split(' ')[1]),
-      name: readFileSync(`/proc/${pid}/comm`, 'utf8').trim(),
-    };
-  }
-  // macOS: `ps -E` appends the environment to the command line. It shows
-  // nothing for SIP-protected binaries (/bin/sh, /bin/bash), which is fine:
-  // the agent process above them is what carries the variable.
-  const ps = (...args) => execFileSync('ps', [...args, '-p', String(pid)], { encoding: 'utf8' }).trim();
-  return {
-    env: ps('-E', '-ww', '-o', 'command=').split(' '),
-    ppid: Number(ps('-o', 'ppid=')),
-    name: ps('-o', 'comm=').split('/').pop(),
-  };
-}
-
-// Some agents (cursor-agent) start MCP servers with a scrubbed environment, so
-// HERDR_WORKSPACE_ID may be missing even inside a Herdr pane. The agent process
-// itself still has it: take it from the nearest ancestor that does. Only trust
-// it if the chain leads to the Herdr server, though. Codex runs MCP servers from
-// a shared daemon that outlives the pane it started in (it ends up under
-// launchd), so its environment names whichever workspace launched it first.
-function ancestorWorkspace() {
-  let found = null;
-  let pid = process.ppid;
-  for (let depth = 0; depth < 12 && pid > 1; depth++) {
-    try {
-      const { env, ppid, name } = processInfo(pid);
-      if (name === 'herdr') return found;
-      const get = (key) => env.find((kv) => kv.startsWith(`${key}=`))?.slice(key.length + 1).trim();
-      const workspace = get('HERDR_WORKSPACE_ID');
-      if (workspace) found ??= { workspace, pane: get('HERDR_PANE_ID') ?? null };
-      pid = ppid;
-    } catch {
-      return null;
-    }
-  }
-  return null;
-}
-
-function herdrPanes(...args) {
-  try {
-    return JSON.parse(execFileSync(herdrBin, ['pane', 'list', ...args], { encoding: 'utf8', timeout: 3000 })).result.panes;
-  } catch {
-    return null; // Herdr isn't running or isn't installed
-  }
-}
-
-// Last resort (the Codex daemon case): the agent starts us in its session's
-// directory, so find an agent pane in that directory. Only agent panes count,
-// so a plain shell in the same directory doesn't pull an agent running outside
-// Herdr in. Several agents in one directory is ambiguous: the one that is
-// working is the one calling us, then the focused one, then the first.
-function cwdAgentPane(workspace) {
-  const cwd = process.cwd();
-  const agents = (herdrPanes(...(workspace ? ['--workspace', workspace] : [])) ?? [])
-    .filter((p) => p.agent && (p.cwd === cwd || p.foreground_cwd === cwd));
-  const pane = agents.find((p) => p.agent_status === 'working') ?? agents.find((p) => p.focused) ?? agents[0];
-  return pane ? { workspace: pane.workspace_id, pane: pane.pane_id, fromCwd: true } : null;
-}
-
-function resolveHerdr() {
-  if (process.env.HERDR_BROWSER_MCP === 'standalone') return null;
-  if (process.env.HERDR_WORKSPACE_ID) {
-    return { workspace: process.env.HERDR_WORKSPACE_ID, pane: process.env.HERDR_PANE_ID ?? null };
-  }
-  return ancestorWorkspace() ?? cwdAgentPane();
-}
-
-const userArgs = process.argv.slice(2);
-const herdr = resolveHerdr();
-const workspace = herdr?.workspace ?? null;
-const inHerdr = Boolean(workspace);
-
-// Show the agent's work: on its first browser tool call, open a browser pane
-// next to the agent's pane, unless its tab already has one.
-// HERDR_BROWSER_AUTO_OPEN=0 turns this off.
-function openPaneForAgent() {
-  if (process.env.HERDR_BROWSER_AUTO_OPEN === '0') return;
-  // Re-resolve the pane by cwd now: at call time the caller is the working agent.
-  const pane = herdr.fromCwd ? (cwdAgentPane(workspace)?.pane ?? herdr.pane) : herdr.pane;
-  if (!pane) return;
-  const panes = herdrPanes('--workspace', workspace);
-  const tab = panes?.find((p) => p.pane_id === pane)?.tab_id;
-  if (!tab || panes.some((p) => p.tab_id === tab && p.label === 'Browser')) return;
-  const open = spawn(herdrBin, [
-    'plugin', 'pane', 'open', '--plugin', 'devtuns.browser', '--entrypoint', 'view',
-    '--placement', 'split', '--target-pane', pane, '--direction', 'right', '--no-focus',
-    '--env', 'HERDR_BROWSER_WATCH=1',
-  ], { stdio: 'ignore' });
-  open.on('error', () => {});
-}
+import {
+  lazyBrowserUrl, resolveHerdr, runMcp, withoutLaunchFlags,
+} from './agent-mcp.js';
 
 // Flags that choose or launch a browser. In Herdr the browser is the
 // workspace's, so these would conflict with --browserUrl; drop them.
@@ -129,51 +30,10 @@ const LAUNCH_FLAGS = new Set([
 ]);
 const BOOLEAN_FLAGS = new Set(['autoConnect', 'auto-connect', 'headless', 'isolated']);
 
-function withoutLaunchFlags(args) {
-  const kept = [];
-  for (let i = 0; i < args.length; i++) {
-    const m = /^--?(?:no-)?([^=]+)(=.*)?$/.exec(args[i]);
-    if (!m || !LAUNCH_FLAGS.has(m[1])) { kept.push(args[i]); continue; }
-    if (m[2] !== undefined) continue; // --flag=value
-    const next = args[i + 1];
-    const takesValue = BOOLEAN_FLAGS.has(m[1]) ? next === 'true' || next === 'false' : next !== undefined && !next.startsWith('-');
-    if (takesValue) i++;
-  }
-  return kept;
-}
-
-// Every agent session starts its MCP servers, but most never touch the
-// browser, so don't start Chrome until it's needed. chrome-devtools-mcp only
-// contacts --browserUrl (GET /json/version) on its first tool call: point it at
-// a local proxy that starts the workspace's Chrome on the first request and
-// forwards to it. With the Host header rewritten, the WebSocket URL in the
-// reply names Chrome's real port, so the DevTools connection goes straight to
-// Chrome and never through the proxy.
-async function lazyBrowserUrl(profile) {
-  let starting = null; // one ensureChrome at a time; it also revives a dead Chrome
-  const chromePort = async () => {
-    starting ??= ensureChrome(profile).finally(() => { starting = null; });
-    return (await starting).port;
-  };
-  const server = createServer(async (req, res) => {
-    try {
-      const port = await chromePort();
-      // Chrome builds the WebSocket URL from the Host header: name its real port.
-      const headers = { ...req.headers, host: `127.0.0.1:${port}` };
-      const upstream = request({ host: '127.0.0.1', port, path: req.url, method: req.method, headers }, (up) => {
-        res.writeHead(up.statusCode, up.headers);
-        up.pipe(res);
-      });
-      upstream.on('error', (err) => { res.writeHead(502); res.end(String(err)); });
-      req.pipe(upstream);
-    } catch (err) {
-      res.writeHead(502);
-      res.end(String(err));
-    }
-  });
-  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
-  return `http://127.0.0.1:${server.address().port}`;
-}
+const userArgs = process.argv.slice(2);
+const herdr = resolveHerdr();
+const workspace = herdr?.workspace ?? null;
+const inHerdr = Boolean(workspace);
 
 let args = userArgs;
 if (inHerdr) {
@@ -182,36 +42,8 @@ if (inHerdr) {
     // These are local dev pages: don't send usage stats or URLs to Google.
     '--no-usage-statistics',
     '--no-performance-crux',
-    ...withoutLaunchFlags(userArgs),
+    ...withoutLaunchFlags(userArgs, LAUNCH_FLAGS, BOOLEAN_FLAGS),
   ];
 }
 
-// stdout is the MCP stdio channel: nothing else may be written to it. In
-// Herdr, requests pass through us unchanged so we can spot the first tool call.
-const child = spawn('npx', ['-y', 'chrome-devtools-mcp@latest', ...args], {
-  stdio: [inHerdr ? 'pipe' : 'inherit', 'inherit', 'inherit'],
-});
-if (inHerdr) {
-  process.stdin.pipe(child.stdin);
-  child.stdin.on('error', () => {}); // child gone: its exit handler ends us
-  let pending = '';
-  const watch = (chunk) => {
-    pending += chunk;
-    let nl;
-    while ((nl = pending.indexOf('\n')) >= 0) {
-      const line = pending.slice(0, nl);
-      pending = pending.slice(nl + 1);
-      if (line.includes('"tools/call"')) {
-        process.stdin.off('data', watch);
-        pending = '';
-        try { openPaneForAgent(); } catch {}
-        return;
-      }
-    }
-  };
-  process.stdin.setEncoding('utf8');
-  process.stdin.on('data', watch);
-}
-
-for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(sig, () => child.kill(sig));
-child.on('exit', (code, signal) => process.exit(signal ? 1 : code ?? 0));
+runMcp('chrome-devtools-mcp@latest', args, { inHerdr, herdr });

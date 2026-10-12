@@ -3,25 +3,25 @@
 **Watch your coding agents use the browser, inside
 [Herdr](https://github.com/herdrdev/herdr).**
 
-Claude Code, Codex, Cursor and Antigravity drive Chrome through the Chrome
-DevTools MCP server (`chrome-devtools-mcp`), but that Chrome is usually
+Claude Code, Codex, Cursor and Antigravity drive Chrome through
+`chrome-devtools-mcp` or `@playwright/mcp`, but that Chrome is usually
 invisible. This plugin shows it in a Herdr pane next to the agent, live, and
-lets you click and type into the same page. Your agents keep the
-`chrome-devtools` tools they already use: nothing new to install in the agent,
-nothing new for it to learn.
+lets you click and type into the same page. Your agents keep the browser tools
+they already use: nothing new to install in the agent, nothing new for it to
+learn.
 
 ```
 agent pane (workspace w8)                     browser pane (w8)
-   └─ mcp.js → chrome-devtools-mcp ──┐   ┌── main.js (follows new tabs)
+   └─ mcp.js / playwright-mcp.js ────┐   ┌── main.js (follows new tabs)
                                      ▼   ▼
                      headless Chrome for w8 (one per workspace)
                      started on first use, stopped when the workspace closes
 ```
 
-- **A drop-in for `chrome-devtools-mcp`.** Point your existing
-  `chrome-devtools` MCP entry at the plugin's launcher. Inside Herdr it drives
-  the workspace's visible Chrome; anywhere else it runs plain
-  `chrome-devtools-mcp`, unchanged.
+- **A drop-in for `chrome-devtools-mcp` and `@playwright/mcp`.** Point your
+  existing MCP entry at the matching plugin launcher (`src/mcp.js` or
+  `src/playwright-mcp.js`). Inside Herdr it drives the workspace's visible
+  Chrome; anywhere else it runs the plain MCP server, unchanged.
 - **The pane opens itself** next to the agent the first time it uses a browser
   tool, and switches to each tab the agent opens.
 - **One Chrome per Herdr workspace,** with its own cookies and logins, started
@@ -78,12 +78,14 @@ If you see a red/green gradient, it works.
 
 ### Connect your agents
 
-The launcher is a drop-in replacement for `chrome-devtools-mcp`. Inside a
+Each launcher is a drop-in replacement for the MCP server it wraps. Inside a
 Herdr pane (`HERDR_WORKSPACE_ID` is set) it attaches to that workspace's
-visible Chrome; anywhere else (an IDE, a plain terminal, CI) it runs plain
-`chrome-devtools-mcp` with your arguments, unchanged. So replace your existing
-`chrome-devtools` entry with it rather than adding a second browser MCP: one
-tool set, and the agent can't pick the invisible browser by mistake.
+visible Chrome; anywhere else (an IDE, a plain terminal, CI) it runs the plain
+server with your arguments, unchanged. Replace your existing entry rather than
+adding a second browser MCP: one tool set, and the agent can't pick the
+invisible browser by mistake.
+
+#### chrome-devtools-mcp (`src/mcp.js`)
 
 ```sh
 # Claude Code
@@ -116,11 +118,38 @@ the full path), then approve it once for the CLI with
 }
 ```
 
+Droid: set the `chrome-devtools` entry in `~/.factory/mcp.json` the same way
+(full paths for both `node` and `mcp.js`).
+
 Keep any arguments you had (`--headless`, `--isolated`, `--channel`, ...).
 They apply outside Herdr; inside Herdr, flags that choose or launch a browser
 are dropped because the workspace's browser is used. To force the standalone
 behavior inside Herdr, set `HERDR_BROWSER_MCP=standalone`. If you uninstall the
 plugin, point the entry back at `npx -y chrome-devtools-mcp@latest`.
+
+#### @playwright/mcp (`src/playwright-mcp.js`)
+
+Same idea, different file. Point an existing `playwright` entry at
+`.../current/src/playwright-mcp.js` instead of `npx @playwright/mcp@latest`.
+Inside Herdr the launcher passes `--cdp-endpoint` to the workspace Chrome and
+drops flags that would launch or isolate a different browser (`--browser`,
+`--isolated`, `--headless`, `--user-data-dir`, `--extension`, `--device`, …).
+`--isolated` in particular would open a new browser context the pane does not
+follow. Keep those flags for when the same entry runs outside Herdr.
+
+```sh
+claude mcp add --scope user playwright -- \
+  node ~/.local/state/herdr/plugins/devtuns.browser/current/src/playwright-mcp.js
+```
+
+Cursor:
+
+```json
+"playwright": {
+  "command": "node",
+  "args": ["/Users/you/.local/state/herdr/plugins/devtuns.browser/current/src/playwright-mcp.js"]
+}
+```
 
 `current` is a link that the plugin keeps pointed at its active installation
 (Herdr installs each update into a new directory), so this survives
@@ -174,7 +203,9 @@ workspace's Chrome). Chrome also stops automatically on `workspace.closed`.
 | `src/input.js` | SGR mouse parsing, cell → page coordinates, wheel decoding and coalescing, keys |
 | `src/kitty.js` | Kitty graphics encoding (chunked PNG, double-buffered image ids) |
 | `src/chrome.js` | Start or reuse the workspace's detached headless Chrome |
-| `src/mcp.js` | Agent entrypoint and drop-in for `chrome-devtools-mcp`: find the agent's workspace, attach to its Chrome, open a pane on the first tool call |
+| `src/agent-mcp.js` | Shared launcher: workspace resolution, lazy CDP proxy, pane auto-open, stdio forwarding |
+| `src/mcp.js` | Agent entrypoint and drop-in for `chrome-devtools-mcp`: attach to the workspace Chrome, open a pane on the first tool call |
+| `src/playwright-mcp.js` | Same drop-in for `@playwright/mcp`, attaching with `--cdp-endpoint` |
 | `src/stop.js` | Stop a workspace's Chrome (event hook and action) |
 | `src/paths.js` | Shared state paths (`~/.local/state/herdr/plugins/devtuns.browser`) and the `current` install link |
 | `src/startup.js` | Startup hook: refresh the `current` link |
