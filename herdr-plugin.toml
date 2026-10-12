@@ -1,6 +1,6 @@
 id = "devtuns.browser"
 name = "Browser pane"
-version = "0.2.0"
+version = "0.3.0"
 min_herdr_version = "0.9.0"
 description = "Watch your agents' chrome-devtools MCP browser live in a pane, and take over"
 platforms = ["macos", "linux"]

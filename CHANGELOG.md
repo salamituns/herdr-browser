@@ -1,18 +1,27 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 (2026-10-12)
 
+Playwright MCP shows up in the pane too, and Droid is supported.
+
+**Agents**
 - `src/playwright-mcp.js` is a drop-in for `@playwright/mcp`, the same way
   `src/mcp.js` wraps `chrome-devtools-mcp`. Inside Herdr it attaches to the
-  workspace Chrome with `--cdp-endpoint` (and drops `--isolated`, so the pane
-  can follow the page). Shared launcher code lives in `src/agent-mcp.js`.
-- Droid (Factory) is supported and documented: point the `chrome-devtools` and
-  `playwright` entries in `~/.factory/mcp.json` at the launchers.
-- README leads with what the plugin is for: watching the browser your agents
-  already drive through `chrome-devtools-mcp`.
-- `agent-guide.md`: setup steps an AI agent can follow to install the plugin
-  and repoint the user's existing chrome-devtools MCP entries, with checks.
+  workspace's Chrome with `--cdp-endpoint` and drops `--isolated` and other
+  flags that would launch or hide a different browser; outside Herdr it runs
+  plain `@playwright/mcp`. Shared launcher code lives in `src/agent-mcp.js`.
+- Droid (Factory): point the `chrome-devtools` and `playwright` entries in
+  `~/.factory/mcp.json` at the launchers.
+
+**Setup**
+- `agent-guide.md`: steps an AI agent can follow to install the plugin and
+  repoint the user's existing chrome-devtools and Playwright entries, with a
+  check for each step. It keeps Codex's per-tool approval settings, which
+  `codex mcp remove` would delete.
+- README paste-in prompt that has your agent follow the guide.
 - `llms.txt` for agents and search tools.
+- README leads with what the plugin is for: watching the browser your agents
+  already drive.
 
 ## 0.2.0 (2026-10-10)
 
