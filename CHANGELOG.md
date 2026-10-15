@@ -1,6 +1,8 @@
 # Changelog
 
-## Unreleased
+## 0.3.1 (2026-10-15)
+
+Fixes the page bouncing when you scroll past its top or bottom on macOS.
 
 **Pane**
 - Scrolling no longer bounces at the top or bottom of a page on macOS. Chrome

@@ -29,7 +29,7 @@ agent pane (workspace w8)                     browser pane (w8)
 - **Take over at any time:** mouse, keyboard, scrolling and the URL bar go to
   the same page. Phone emulation by the agent is shown at its real proportions.
 
-> v0.3.0, macOS and Linux. Looking for a general-purpose browser in the
+> v0.3.1, macOS and Linux. Looking for a general-purpose browser in the
 > terminal instead? See [Related projects](#related-projects).
 
 ## Let your agent set it up
