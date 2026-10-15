@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+**Pane**
+- Scrolling no longer bounces at the top or bottom of a page on macOS. Chrome
+  rubber-banded the page on every wheel burst past the edge (trackpad
+  momentum), about 75 frames of the page jumping and springing back. The pane
+  now sets `overscroll-behavior: none` on the shown tab's root through a
+  constructed stylesheet: no DOM node for agents' snapshots, and zero
+  specificity so a page's own setting still wins.
+
 ## 0.3.0 (2026-10-12)
 
 Playwright MCP shows up in the pane too, and Droid is supported.

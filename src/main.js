@@ -229,6 +229,17 @@ function showFrame(pngBase64) {
   if (flushed) setImmediate(done); else out.once('drain', done);
 }
 
+// Chrome on macOS rubber-bands the page when a wheel event pushes past its top
+// or bottom. Our wheel events have no trackpad phases, so every burst past the
+// edge (trackpad momentum) bounces the whole page for ~75 frames. A constructed
+// stylesheet turns it off without adding a DOM node agents would see, and
+// :where() keeps zero specificity so a page's own overscroll-behavior wins.
+const NO_RUBBER_BAND = `(() => {
+  const sheet = new CSSStyleSheet();
+  sheet.replaceSync(':where(html) { overscroll-behavior: none; }');
+  document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
+})()`;
+
 // --- main -------------------------------------------------------------------
 async function main() {
   refreshCurrentLink();
@@ -347,6 +358,8 @@ async function main() {
     session.on('close', () => { if (gen === generation) showAnyTab().catch(logError); });
 
     await session.send('Page.enable');
+    await session.send('Page.addScriptToEvaluateOnNewDocument', { source: NO_RUBBER_BAND });
+    await session.send('Runtime.evaluate', { expression: NO_RUBBER_BAND }).catch(() => {});
     const { frameTree } = await session.send('Page.getFrameTree');
     currentUrl = frameTree.frame.url;
     await session.send('Page.bringToFront').catch(() => {});
